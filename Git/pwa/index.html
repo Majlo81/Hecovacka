@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>🔥 Hecovačka - PWA</title>
+    
+    <!-- PWA Meta Tags -->
+    <meta name="description" content="Motivačná aplikácia pre skupiny priateľov">
+    <meta name="theme-color" content="#4F7FFF">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Hecovačka">
+    <link rel="manifest" href="manifest.json">
+
+    <style>
+        /* Copy complete CSS from original index.html */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        .phone {
+            width: 375px;
+            height: 667px;
+            background: white;
+            border-radius: 25px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .screen {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        .page {
+            height: 100%;
+            padding: 40px 30px;
+            display: none;
+        }
+
+        .page.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Login Page */
+        .login-page {
+            justify-content: center;
+            text-align: center;
+            background: #fff;
+        }
+
+        .logo {
+            font-size: 60px;
+            margin-bottom: 10px;
+        }
+
+        .title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 40px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        .label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+            font-size: 14px;
+        }
+
+        .input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        .input:focus {
+            outline: none;
+            border-color: #4F7FFF;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-bottom: 10px;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #4F7FFF;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #3d6ae6;
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: #4F7FFF;
+            border: 2px solid #4F7FFF;
+        }
+
+        .status {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            border-radius: 25px;
+            color: white;
+            font-weight: 600;
+            z-index: 1000;
+            display: none;
+            max-width: 300px;
+            text-align: center;
+        }
+
+        .status.success {
+            background: #4CAF50;
+        }
+
+        .status.error {
+            background: #f44336;
+        }
+
+        /* Dashboard styles would continue here... */
+    </style>
+</head>
+<body>
+    <div class="phone">
+        <div class="screen">
+            <!-- Login Page -->
+            <div id="loginPage" class="page login-page active">
+                <div class="logo">🔥</div>
+                <h1 class="title">HECOVAČKA</h1>
+                
+                <div class="form-group">
+                    <label class="label">Email</label>
+                    <input type="email" id="email" class="input" value="test@example.com">
+                </div>
+                
+                <div class="form-group">
+                    <label class="label">Heslo</label>
+                    <input type="password" id="password" class="input" value="heslo123">
+                </div>
+                
+                <button id="loginBtn" class="btn btn-primary">Prihlásiť sa</button>
+                <button id="registerBtn" class="btn btn-secondary">Registrovať sa</button>
+            </div>
+
+            <!-- Dashboard and other pages would be here... -->
+        </div>
+    </div>
+
+    <div id="status" class="status"></div>
+
+    <script>
+        // API Configuration - Production Ready!
+        const isProduction = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+        const API_BASE_URL = isProduction 
+            ? 'https://your-backend-domain.com' // Change this to your production backend URL
+            : 'http://localhost:3000';
+        const API_URL = API_BASE_URL + '/api';
+        const SOCKET_URL = API_BASE_URL;
+        
+        // Log environment and connection info
+        console.log('🔥 PWA Environment:', isProduction ? 'PRODUCTION' : 'DEVELOPMENT');
+        console.log('🔥 PWA connecting to backend:', API_URL);
+        
+        // Global variables
+        let token = null;
+        let user = null;
+
+        // Basic functions for demo
+        function showStatus(message, isError = false) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${isError ? 'error' : 'success'}`;
+            status.style.display = 'block';
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 3000);
+        }
+
+        // Login function
+        async function login() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            if (!email || !password) {
+                showStatus('Vyplň email a heslo', true);
+                return;
+            }
+
+            showStatus('Pripájam sa na backend...');
+            console.log('Login attempt with:', { email, API_URL });
+        }
+
+        // Event listeners
+        document.getElementById('loginBtn').addEventListener('click', login);
+        document.getElementById('registerBtn').addEventListener('click', () => {
+            showStatus('Registrácia - pripájam sa na backend...');
+        });
+
+        console.log('🔥 Hecovačka PWA loaded!');
+        console.log('🌐 Live PWA URL: https://hecovacka-pwa.windsurf.build');
+    </script>
+
+    <!-- PWA Service Worker -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js')
+                .then(() => console.log('SW registered'))
+                .catch(() => console.log('SW failed'));
+        }
+    </script>
+</body>
+</html>

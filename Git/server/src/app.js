@@ -14,30 +14,43 @@ const server = http.createServer(app);
 // Socket.io setup for real-time communication
 const io = socketIo(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "https://hecovacka-pwa.windsurf.build",
-    methods: ["GET", "POST"]
+    origin: "*", // Povolíme všetky origins pre production testing
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true
   }
 });
 
-// Middleware
-app.use(helmet()); // Security headers
-app.use(morgan('combined')); // Logging
+// Trust proxy - potrebné pre Railway
+app.set('trust proxy', 1);
+
+// CORS - povolíme všetko pre production debugging
 app.use(cors({
-  origin: [
-    "https://hecovacka-pwa.windsurf.build",
-    "http://localhost:3000",
-    "http://localhost:8080",
-    "http://localhost:8090",
-    "http://127.0.0.1:8080",
-    "http://127.0.0.1:8090"
-  ],
+  origin: "*", // Dočasne povolíme všetky origins
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   credentials: true
 }));
 
-// Rate limiting
+// Pre preflight requests
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Content-Length, X-Requested-With');
+  res.sendStatus(200);
+});
+
+// Security middleware - zmiernené pre debugging
+app.use(helmet({
+  crossOriginEmbedderPolicy: false,
+  contentSecurityPolicy: false
+}));
+
+app.use(morgan('combined')); // Logging
+
+// Rate limiting - výrazne zmiernené pre development
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Development-friendly limit
+  max: 10000, // Veľmi vysoký limit pre testing
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', limiter);
@@ -46,51 +59,68 @@ app.use('/api/', limiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Database connection with production support
+// Database connection s lepším error handlingom
 const connectDB = async () => {
   try {
     let mongoURI;
     
-    // Production or development with external MongoDB
+    // Production MongoDB
     if (process.env.MONGODB_URI) {
       mongoURI = process.env.MONGODB_URI;
       console.log('🌐 Connecting to production MongoDB...');
+      await mongoose.connect(mongoURI, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+      });
+      console.log('✅ Production MongoDB connected successfully!');
     } 
     // Development with in-memory MongoDB
     else {
-      const { MongoMemoryServer } = require('mongodb-memory-server');
-      console.log('🔥 Starting in-memory MongoDB for development...');
-      const mongod = new MongoMemoryServer();
-      await mongod.start();
-      mongoURI = mongod.getUri();
+      try {
+        const { MongoMemoryServer } = require('mongodb-memory-server');
+        console.log('🔥 Starting in-memory MongoDB for development...');
+        const mongod = new MongoMemoryServer();
+        await mongod.start();
+        mongoURI = mongod.getUri();
+        
+        await mongoose.connect(mongoURI, {
+          useNewUrlParser: true,
+          useUnifiedTopology: true,
+        });
+        console.log('✅ In-Memory MongoDB connected successfully!');
+        console.log('🚀 Ready for testing - no external MongoDB needed!');
+      } catch (memoryDbError) {
+        console.log('⚠️ In-memory MongoDB failed, continuing without database');
+        console.error('Memory DB Error:', memoryDbError.message);
+      }
     }
     
-    await mongoose.connect(mongoURI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
-    
-    if (process.env.MONGODB_URI) {
-      console.log('✅ Production MongoDB connected successfully!');
-    } else {
-      console.log('✅ In-Memory MongoDB connected successfully!');
-      console.log('🚀 Ready for testing - no external MongoDB needed!');
-    }
   } catch (error) {
-    console.error('❌ Database connection error:', error);
-    console.log('⚠️ Continuing without database - frontend will work!');
+    console.error('❌ Database connection error:', error.message);
+    console.log('⚠️ Continuing without database - API will still work for testing!');
   }
 };
 
 // Connect to database
 connectDB();
 
-// Basic API routes with demo data
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/groups', require('./routes/groups'));
-app.use('/api/goals', require('./routes/goals'));
-app.use('/api/progress', require('./routes/progress'));
-app.use('/api/hecovacky', require('./routes/hecovacky'));
+// Basic route pre root
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: '🔥 Hecovačka API is running!',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      health: '/health',
+      api: '/api',
+      auth: '/api/auth',
+      groups: '/api/groups',
+      goals: '/api/goals',
+      progress: '/api/progress',
+      hecovacky: '/api/hecovacky'
+    }
+  });
+});
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -98,23 +128,34 @@ app.get('/health', (req, res) => {
     success: true,
     message: 'Hecovačka server is running! 🔥',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    environment: process.env.NODE_ENV || 'development'
+    uptime: Math.floor(process.uptime()),
+    environment: process.env.NODE_ENV || 'development',
+    port: process.env.PORT || 3000,
+    cors: 'enabled'
   });
 });
+
+// API routes with demo data
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/groups', require('./routes/groups'));
+app.use('/api/goals', require('./routes/goals'));
+app.use('/api/progress', require('./routes/progress'));
+app.use('/api/hecovacky', require('./routes/hecovacky'));
 
 // API info endpoint
 app.get('/api', (req, res) => {
   res.json({
     success: true,
     message: 'Hecovačka API v1.0',
+    timestamp: new Date().toISOString(),
     endpoints: {
-      auth: '/api/auth',
+      auth: '/api/auth (POST /login, /register)',
       groups: '/api/groups',
       goals: '/api/goals',
       progress: '/api/progress',
       hecovacky: '/api/hecovacky'
     },
+    status: 'All systems operational',
     documentation: 'See README.md for API documentation'
   });
 });
@@ -125,10 +166,12 @@ io.on('connection', (socket) => {
 
   // Join user to their groups for real-time updates
   socket.on('join-groups', (groupIds) => {
-    groupIds.forEach(groupId => {
-      socket.join(`group-${groupId}`);
-      console.log(`👥 User ${socket.id} joined group ${groupId}`);
-    });
+    if (Array.isArray(groupIds)) {
+      groupIds.forEach(groupId => {
+        socket.join(`group-${groupId}`);
+        console.log(`👥 User ${socket.id} joined group ${groupId}`);
+      });
+    }
   });
 
   // Handle progress updates
@@ -160,13 +203,25 @@ io.on('connection', (socket) => {
   });
 });
 
+// Global error handling
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  // Nekončíme proces v produkcii
+});
+
+process.on('unhandledRejection', (error) => {
+  console.error('❌ Unhandled Rejection:', error);
+  // Nekončíme proces v produkcii
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('❌ Server error:', err.stack);
   res.status(500).json({
     success: false,
     message: 'Internal server error',
-    error: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong!'
+    error: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong!',
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -174,8 +229,9 @@ app.use((err, req, res, next) => {
 app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
-    message: 'API endpoint not found',
+    message: `API endpoint not found: ${req.originalUrl}`,
     availableEndpoints: [
+      '/ (root)',
       '/health',
       '/api',
       '/api/auth',
@@ -183,16 +239,19 @@ app.use('*', (req, res) => {
       '/api/goals',
       '/api/progress',
       '/api/hecovacky'
-    ]
+    ],
+    timestamp: new Date().toISOString()
   });
 });
 
+// Port configuration
 const PORT = process.env.PORT || 3000;
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Hecovačka server running on port ${PORT}`);
   console.log(`🌐 Health check: http://localhost:${PORT}/health`);
   console.log(`📡 Socket.io ready for real-time communication`);
+  console.log(`🔥 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
 module.exports = { app, io };
